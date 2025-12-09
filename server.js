@@ -34,7 +34,7 @@ mongoose
   .connect("mongodb+srv://bimapopo81:Bima1234@sinau.q23pt.mongodb.net/pupuk-sdlp")
   .then(async () => {
     console.log("✅ MongoDB connected to pupuk-sdlp database");
-    
+
     await createDefaultAdmin();
   })
   .catch((err) => console.log("❌ MongoDB connection error:", err));
@@ -72,7 +72,7 @@ const createDefaultAdmin = async () => {
     if (!admin) {
       await User.create({
         username: "admin",
-        password: "123456", // akan otomatis di-hash oleh pre-save di User model
+        password: "admin123", // akan otomatis di-hash oleh pre-save di User model
         role: "admin"
       });
       console.log("✅ Admin Default dibuat: admin / 123456");
@@ -143,27 +143,47 @@ app.post("/api/users", async (req, res) => {
 // 4. DELETE USER
 app.delete("/api/users/:id", async (req, res) => {
   try {
-    // 1. Cari user dulu untuk cek username-nya
-    const targetUser = await User.findById(req.params.id);
+    // Expect frontend to send username of requester in header:
+    // 'x-requester-username': '<username>'
+    const requesterUsername = req.headers['x-requester-username'];
 
+    if (!requesterUsername) {
+      return res.status(400).json({
+        success: false,
+        message: "Bad Request: missing header 'x-requester-username'"
+      });
+    }
+
+    const targetUser = await User.findById(req.params.id);
     if (!targetUser) {
       return res.status(404).json({ success: false, message: "User tidak ditemukan" });
     }
 
-    // 2. === PROTEKSI SUPERADMIN ===
-    // Jika username adalah 'admin', tolak penghapusan
+    // Proteksi superadmin
     if (targetUser.username === "admin") {
-      return res.status(403).json({ 
-        success: false, 
-        message: "⛔ AKSES DITOLAK: Superadmin tidak bisa dihapus!" 
+      return res.status(403).json({
+        success: false,
+        message: "⛔ AKSES DITOLAK: Superadmin tidak bisa dihapus!"
       });
     }
 
-    // 3. Jika bukan admin, lanjutkan penghapusan
+    // Cegah user menghapus akunnya sendiri
+    if (targetUser.username === requesterUsername) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: Anda tidak dapat menghapus akun Anda sendiri"
+      });
+    }
+
+    // (Opsional) Jika kamu mau juga batasi hanya admin yang bisa delete,
+    // frontend bisa mengirim header 'x-requester-role' dan kita cek di sini.
+    // const requesterRole = req.headers['x-requester-role'];
+    // if (requesterRole !== 'admin') return res.status(403)...
+
     await User.findByIdAndDelete(req.params.id);
-    
     res.json({ success: true, message: "User berhasil dihapus" });
   } catch (error) {
+    console.error("Delete user error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
