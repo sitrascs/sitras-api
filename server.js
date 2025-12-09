@@ -20,8 +20,8 @@ const PORT = process.env.PORT || 3001;
 // ==========================================
 
 // URL API Machine Learning (Hugging Face)
-const ML_KALIBRASI_API_URL = "https://sitrascs-sitras-ml-api.hf.space/predict";
-const ML_REKOMENDASI_API_URL = "https://sitrascs-sitras-ml-api.hf.space/predict_rekomendasi";
+const ML_KALIBRASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict";
+const ML_REKOMENDASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict_rekomendasi";
 
 // Middleware
 app.use(cors());
