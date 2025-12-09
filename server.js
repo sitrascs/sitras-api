@@ -72,10 +72,10 @@ const createDefaultAdmin = async () => {
     if (!admin) {
       await User.create({
         username: "admin",
-        password: "admin123", // akan otomatis ke-hash
+        password: "123456", // akan otomatis di-hash oleh pre-save di User model
         role: "admin"
       });
-      console.log("✅ Admin Default dibuat: admin / admin123");
+      console.log("✅ Admin Default dibuat: admin / 123456");
     }
   } catch (err) {
     console.error("Gagal buat admin:", err);
