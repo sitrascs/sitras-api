@@ -31,11 +31,11 @@ app.use(express.json());
 // DATABASE CONNECTION
 // ==========================================
 mongoose
-  .connect("mongodb+srv://bimapopo81:Bima1234@sinau.q23pt.mongodb.net/pupuk-sdlp")
-  .then(async () => {
+  .connect(
+    "mongodb+srv://bimapopo81:Bima1234@sinau.q23pt.mongodb.net/pupuk-sdlp"
+  )
+  .then(() => {
     console.log("✅ MongoDB connected to pupuk-sdlp database");
-
-    await createDefaultAdmin();
   })
   .catch((err) => console.log("❌ MongoDB connection error:", err));
 
@@ -72,40 +72,37 @@ const createDefaultAdmin = async () => {
     if (!admin) {
       await User.create({
         username: "admin",
-        password: "admin123", // akan otomatis di-hash oleh pre-save di User model
+        password: "admin123", // Ganti nanti
         role: "admin"
       });
-      console.log("✅ Admin Default dibuat: admin / 123456");
+      console.log("✅ Admin Default dibuat: admin / admin123");
     }
   } catch (err) {
     console.error("Gagal buat admin:", err);
   }
 };
+createDefaultAdmin();
 
 // === ROUTES AUTH ===
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
-
   try {
     const user = await User.findOne({ username });
-    if (!user)
-      return res.status(401).json({ success: false, message: "Username atau password salah" });
-
-    // Bandingkan password dengan bcrypt
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch)
-      return res.status(401).json({ success: false, message: "Username atau password salah" });
+    
+    // Validasi Password sederhana (Gunakan bcrypt di production)
+    if (!user || user.password !== password) {
+      return res.status(401).json({ success: false, message: "Username atau Password salah" });
+    }
 
     res.json({
       success: true,
       user: {
         id: user._id,
         username: user.username,
-        role: user.role,
+        role: user.role
       },
-      token: "dummy-token-jwt"
+      token: "dummy-token-jwt" 
     });
-
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -125,15 +122,16 @@ app.get("/api/users", async (req, res) => {
 app.post("/api/users", async (req, res) => {
   try {
     const { username, password, role } = req.body;
-
+    
+    // Cek duplikasi
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ message: "Username sudah digunakan!" });
     }
 
     const newUser = new User({ username, password, role });
-    await newUser.save(); // password di-hash otomatis
-
+    await newUser.save();
+    
     res.status(201).json({ success: true, message: "User berhasil dibuat" });
   } catch (error) {
     res.status(400).json({ message: "Gagal membuat user", error: error.message });
@@ -141,71 +139,53 @@ app.post("/api/users", async (req, res) => {
 });
 
 // 4. DELETE USER
-// 4. DELETE USER (tolerant + logging)
 app.delete("/api/users/:id", async (req, res) => {
   try {
-    // --- LOG incoming headers & body (debugging) ---
-    console.log("DELETE /api/users/:id headers:", req.headers);
-    console.log("DELETE /api/users/:id body:", req.body);
-
-    // Prefer header 'x-requester-username', fallback ke body.requesterUsername
-    const requesterUsername = req.headers['x-requester-username'] || req.body?.requesterUsername || req.body?.requester;
-
-    if (!requesterUsername) {
-      // Berikan response yang lebih informatif
-      return res.status(400).json({
-        success: false,
-        message:
-          "Bad Request: missing requester identity. Please send 'x-requester-username' header or include { requesterUsername } in request body."
-      });
-    }
-
+    // 1. Cari user dulu untuk cek username-nya
     const targetUser = await User.findById(req.params.id);
+
     if (!targetUser) {
       return res.status(404).json({ success: false, message: "User tidak ditemukan" });
     }
 
-    // Proteksi superadmin
+    // 2. === PROTEKSI SUPERADMIN ===
+    // Jika username adalah 'admin', tolak penghapusan
     if (targetUser.username === "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "⛔ AKSES DITOLAK: Superadmin tidak bisa dihapus!"
+      return res.status(403).json({ 
+        success: false, 
+        message: "⛔ AKSES DITOLAK: Superadmin tidak bisa dihapus!" 
       });
     }
 
-    // Cegah user menghapus akunnya sendiri
-    if (targetUser.username === requesterUsername) {
-      return res.status(403).json({
-        success: false,
-        message: "Forbidden: Anda tidak dapat menghapus akun Anda sendiri"
-      });
-    }
-
+    // 3. Jika bukan admin, lanjutkan penghapusan
     await User.findByIdAndDelete(req.params.id);
+    
     res.json({ success: true, message: "User berhasil dihapus" });
   } catch (error) {
-    console.error("Delete user error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
 
 // === 6. USER MANAGEMENT (CHANGE PASSWORD) ===
 app.put("/api/users/change-password", async (req, res) => {
   try {
     const { username, newPassword } = req.body;
 
+    // Validasi sederhana
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ success: false, message: "Password minimal 6 karakter" });
     }
 
-    const user = await User.findOne({ username });
+    // Update password user
+    const user = await User.findOneAndUpdate(
+      { username: username },
+      { password: newPassword },
+      { new: true } // Return updated object
+    );
+
     if (!user) {
       return res.status(404).json({ success: false, message: "User tidak ditemukan" });
     }
-
-    user.password = newPassword; // pre-save akan hash
-    await user.save();
 
     res.json({ success: true, message: "Password berhasil diubah" });
   } catch (error) {
@@ -469,123 +449,29 @@ app.delete("/api/data/manual", async (req, res) => {
 // ------------------------------------------
 
 // POST: Rekomendasi Tab "Input" (Langsung ke ML, TANPA simpan ke DB)
-// POST: Rekomendasi Tab "Data" / Dashboard (ML + Simpan ke DB)
-app.post("/api/recommendation", async (req, res) => {
+app.post("/api/recommendation/input", async (req, res) => {
   try {
-    console.log(">>> Incoming /api/recommendation body:", req.body);
-
-    // VALIDASI INPUT
-    const { P, N, K, jenis_tanaman, target_padi } = req.body;
-    const parsedP = parseFloat(P);
-    const parsedN = parseFloat(N);
-    const parsedK = parseFloat(K);
-
-    const missing = [];
-    if (jenis_tanaman == null || jenis_tanaman === "") missing.push("jenis_tanaman");
-    if (target_padi == null || target_padi === "") missing.push("target_padi");
-    if (isNaN(parsedP)) missing.push("P");
-    if (isNaN(parsedN)) missing.push("N");
-    if (isNaN(parsedK)) missing.push("K");
-
-    if (missing.length > 0) {
-      console.warn("Validation failed - missing/invalid fields:", missing);
-      return res.status(422).json({
-        success: false,
-        message: "Validation error - missing or invalid fields",
-        invalidFields: missing,
-      });
-    }
-
-    // Siapkan payload untuk ML Server
-    const payloadForML = {
-      P: parsedP,
-      N: parsedN,
-      K: parsedK,
-      jenis_tanaman,
-      target_padi,
-    };
-
-    console.log("📨 Forwarding to ML API payload:", payloadForML);
-
-    // Panggil ML API dan tangani error lebih rinci
-    let mlResponse;
-    try {
-      mlResponse = await axios.post(ML_REKOMENDASI_API_URL, payloadForML, {
-        timeout: 15000,
-      });
-    } catch (axiosErr) {
-      // Jika ML mengembalikan response (mis. 4xx/5xx), axiosErr.response ada
-      console.error("❌ Axios error calling ML API:", axiosErr.message);
-      if (axiosErr.response) {
-        console.error("ML API response status:", axiosErr.response.status);
-        console.error("ML API response data:", axiosErr.response.data);
-        return res.status(502).json({
-          success: false,
-          message: "ML API returned an error",
-          mlStatus: axiosErr.response.status,
-          mlData: axiosErr.response.data,
-        });
-      } else {
-        return res.status(502).json({
-          success: false,
-          message: "Failed to reach ML API",
-          error: axiosErr.message,
-        });
-      }
-    }
-
-    // Periksa struktur response ML
-    console.log("ML response data:", mlResponse.data);
-
-    if (!mlResponse.data || mlResponse.data.success !== true || !mlResponse.data.data) {
-      console.error("ML API response unexpected:", mlResponse.data);
-      return res.status(502).json({
-        success: false,
-        message: "ML API returned unexpected response",
-        mlResponse: mlResponse.data,
-      });
-    }
-
-    // Ambil hasil dari ML
-    const { recommendations, reasons, tips, conversion_results } = mlResponse.data.data;
-
-    // Simpan history rekomendasi ke DB
-    const convertedTargetPadi = convertTargetPadi(target_padi);
-    const recommendationData = new Recommendation({
-      input: {
-        P: parsedP,
-        N: parsedN,
-        K: parsedK,
-        jenis_tanaman,
-        target_padi: convertedTargetPadi,
-      },
-      recommendation: recommendations,
-      reasons,
-      tips,
-      conversion_results,
+    const payloadForML = req.body;
+    console.log("📨 Request /input diterima, meneruskan ke ML API...");
+    
+    const mlResponse = await axios.post(ML_REKOMENDASI_API_URL, payloadForML, { 
+      timeout: 10000 
     });
-
-    await recommendationData.save();
-
-    res.json({
-      success: true,
-      message: "Recommendation generated and saved",
-      data: {
-        recommendation: recommendations,
-        timestamp: recommendationData.timestamp,
-        conversion_results: conversion_results,
-      },
-    });
+    
+    if (!mlResponse.data || !mlResponse.data.success) {
+      throw new Error("ML API call was not successful or returned no data");
+    }
+    
+    res.json(mlResponse.data);
   } catch (error) {
-    console.error("❌ Error generating recommendation (catch-all):", error);
-    res.status(500).json({
-      success: false,
-      message: "Error generating recommendation",
-      error: error.message,
+    console.error("❌ Error in /recommendation/input:", error.message);
+    res.status(400).json({ 
+      success: false, 
+      message: "Error calling ML recommendation engine", 
+      error: error.message 
     });
   }
 });
-
 
 // POST: Rekomendasi Tab "Data" / Dashboard (ML + Simpan ke DB)
 app.post("/api/recommendation", async (req, res) => {
