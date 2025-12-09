@@ -62,17 +62,16 @@ const convertTargetPadi = (targetString) => {
 // API ROUTES
 // ==========================================
 
-
-
 // === SETUP DEFAULT ADMIN ===
 // Jalankan server, ini akan otomatis membuat akun admin jika belum ada
 const createDefaultAdmin = async () => {
   try {
     const admin = await User.findOne({ role: "admin" });
     if (!admin) {
+      // ✅ Tidak perlu hash manual disini, karena User.create memicu pre('save') hook
       await User.create({
         username: "admin",
-        password: "admin123", // Ganti nanti
+        password: "admin123", // Password ini akan otomatis di-hash oleh model
         role: "admin"
       });
       console.log("✅ Admin Default dibuat: admin / admin123");
@@ -87,10 +86,18 @@ createDefaultAdmin();
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
   try {
+    // 1. Cari user berdasarkan username
     const user = await User.findOne({ username });
     
-    // Validasi Password sederhana (Gunakan bcrypt di production)
-    if (!user || user.password !== password) {
+    // 2. Cek apakah user ada
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Username atau Password salah" });
+    }
+
+    // 3. ✅ Cek password menggunakan method comparePassword dari model
+    const isMatch = await user.comparePassword(password);
+    
+    if (!isMatch) {
       return res.status(401).json({ success: false, message: "Username atau Password salah" });
     }
 
@@ -129,8 +136,9 @@ app.post("/api/users", async (req, res) => {
       return res.status(400).json({ message: "Username sudah digunakan!" });
     }
 
+    // ✅ Cukup buat instance baru dan save. Hash otomatis jalan.
     const newUser = new User({ username, password, role });
-    await newUser.save();
+    await newUser.save(); 
     
     res.status(201).json({ success: true, message: "User berhasil dibuat" });
   } catch (error) {
@@ -176,16 +184,18 @@ app.put("/api/users/change-password", async (req, res) => {
       return res.status(400).json({ success: false, message: "Password minimal 6 karakter" });
     }
 
-    // Update password user
-    const user = await User.findOneAndUpdate(
-      { username: username },
-      { password: newPassword },
-      { new: true } // Return updated object
-    );
+    // ✅ PERBAIKAN PENTING:
+    // Jangan pakai findOneAndUpdate karena itu MEM-BYPASS middleware pre('save') (hashing tidak jalan).
+    // Gunakan findOne -> ubah property -> save()
+    
+    const user = await User.findOne({ username: username });
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User tidak ditemukan" });
     }
+
+    user.password = newPassword; // Set password baru (masih plain text)
+    await user.save(); // Mongoose akan otomatis hash password ini sebelum simpan ke DB
 
     res.json({ success: true, message: "Password berhasil diubah" });
   } catch (error) {
