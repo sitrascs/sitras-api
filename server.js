@@ -141,16 +141,22 @@ app.post("/api/users", async (req, res) => {
 });
 
 // 4. DELETE USER
+// 4. DELETE USER (tolerant + logging)
 app.delete("/api/users/:id", async (req, res) => {
   try {
-    // Expect frontend to send username of requester in header:
-    // 'x-requester-username': '<username>'
-    const requesterUsername = req.headers['x-requester-username'];
+    // --- LOG incoming headers & body (debugging) ---
+    console.log("DELETE /api/users/:id headers:", req.headers);
+    console.log("DELETE /api/users/:id body:", req.body);
+
+    // Prefer header 'x-requester-username', fallback ke body.requesterUsername
+    const requesterUsername = req.headers['x-requester-username'] || req.body?.requesterUsername || req.body?.requester;
 
     if (!requesterUsername) {
+      // Berikan response yang lebih informatif
       return res.status(400).json({
         success: false,
-        message: "Bad Request: missing header 'x-requester-username'"
+        message:
+          "Bad Request: missing requester identity. Please send 'x-requester-username' header or include { requesterUsername } in request body."
       });
     }
 
@@ -175,11 +181,6 @@ app.delete("/api/users/:id", async (req, res) => {
       });
     }
 
-    // (Opsional) Jika kamu mau juga batasi hanya admin yang bisa delete,
-    // frontend bisa mengirim header 'x-requester-role' dan kita cek di sini.
-    // const requesterRole = req.headers['x-requester-role'];
-    // if (requesterRole !== 'admin') return res.status(403)...
-
     await User.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: "User berhasil dihapus" });
   } catch (error) {
@@ -187,6 +188,7 @@ app.delete("/api/users/:id", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
 
 // === 6. USER MANAGEMENT (CHANGE PASSWORD) ===
 app.put("/api/users/change-password", async (req, res) => {
