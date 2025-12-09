@@ -31,11 +31,11 @@ app.use(express.json());
 // DATABASE CONNECTION
 // ==========================================
 mongoose
-  .connect(
-    "mongodb+srv://bimapopo81:Bima1234@sinau.q23pt.mongodb.net/pupuk-sdlp"
-  )
-  .then(() => {
+  .connect("mongodb+srv://bimapopo81:Bima1234@sinau.q23pt.mongodb.net/pupuk-sdlp")
+  .then(async () => {
     console.log("✅ MongoDB connected to pupuk-sdlp database");
+    
+    await createDefaultAdmin();
   })
   .catch((err) => console.log("❌ MongoDB connection error:", err));
 
