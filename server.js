@@ -20,8 +20,8 @@ const PORT = process.env.PORT || 3001;
 // ==========================================
 
 // URL API Machine Learning (Hugging Face)
-const ML_KALIBRASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict";
-const ML_REKOMENDASI_API_URL = "https://sauqing-api-ml-sitras.hf.space/predict_rekomendasi";
+const ML_KALIBRASI_API_URL = "https://sitrascs-sitras-ml-api.hf.space/predict";
+const ML_REKOMENDASI_API_URL = "https://sitrascs-sitras-ml-api.hf.space/predict_rekomendasi";
 
 // Middleware
 app.use(cors());
@@ -72,7 +72,7 @@ const createDefaultAdmin = async () => {
     if (!admin) {
       await User.create({
         username: "admin",
-        password: "admin123", // Ganti nanti
+        password: "admin123", // akan otomatis ke-hash
         role: "admin"
       });
       console.log("✅ Admin Default dibuat: admin / admin123");
@@ -81,28 +81,31 @@ const createDefaultAdmin = async () => {
     console.error("Gagal buat admin:", err);
   }
 };
-createDefaultAdmin();
 
 // === ROUTES AUTH ===
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
+
   try {
     const user = await User.findOne({ username });
-    
-    // Validasi Password sederhana (Gunakan bcrypt di production)
-    if (!user || user.password !== password) {
-      return res.status(401).json({ success: false, message: "Username atau Password salah" });
-    }
+    if (!user)
+      return res.status(401).json({ success: false, message: "Username atau password salah" });
+
+    // Bandingkan password dengan bcrypt
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch)
+      return res.status(401).json({ success: false, message: "Username atau password salah" });
 
     res.json({
       success: true,
       user: {
         id: user._id,
         username: user.username,
-        role: user.role
+        role: user.role,
       },
-      token: "dummy-token-jwt" 
+      token: "dummy-token-jwt"
     });
+
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -122,16 +125,15 @@ app.get("/api/users", async (req, res) => {
 app.post("/api/users", async (req, res) => {
   try {
     const { username, password, role } = req.body;
-    
-    // Cek duplikasi
+
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ message: "Username sudah digunakan!" });
     }
 
     const newUser = new User({ username, password, role });
-    await newUser.save();
-    
+    await newUser.save(); // password di-hash otomatis
+
     res.status(201).json({ success: true, message: "User berhasil dibuat" });
   } catch (error) {
     res.status(400).json({ message: "Gagal membuat user", error: error.message });
@@ -171,21 +173,17 @@ app.put("/api/users/change-password", async (req, res) => {
   try {
     const { username, newPassword } = req.body;
 
-    // Validasi sederhana
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ success: false, message: "Password minimal 6 karakter" });
     }
 
-    // Update password user
-    const user = await User.findOneAndUpdate(
-      { username: username },
-      { password: newPassword },
-      { new: true } // Return updated object
-    );
-
+    const user = await User.findOne({ username });
     if (!user) {
       return res.status(404).json({ success: false, message: "User tidak ditemukan" });
     }
+
+    user.password = newPassword; // pre-save akan hash
+    await user.save();
 
     res.json({ success: true, message: "Password berhasil diubah" });
   } catch (error) {
