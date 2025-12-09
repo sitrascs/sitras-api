@@ -447,29 +447,123 @@ app.delete("/api/data/manual", async (req, res) => {
 // ------------------------------------------
 
 // POST: Rekomendasi Tab "Input" (Langsung ke ML, TANPA simpan ke DB)
-app.post("/api/recommendation/input", async (req, res) => {
+// POST: Rekomendasi Tab "Data" / Dashboard (ML + Simpan ke DB)
+app.post("/api/recommendation", async (req, res) => {
   try {
-    const payloadForML = req.body;
-    console.log("📨 Request /input diterima, meneruskan ke ML API...");
-    
-    const mlResponse = await axios.post(ML_REKOMENDASI_API_URL, payloadForML, { 
-      timeout: 10000 
-    });
-    
-    if (!mlResponse.data || !mlResponse.data.success) {
-      throw new Error("ML API call was not successful or returned no data");
+    console.log(">>> Incoming /api/recommendation body:", req.body);
+
+    // VALIDASI INPUT
+    const { P, N, K, jenis_tanaman, target_padi } = req.body;
+    const parsedP = parseFloat(P);
+    const parsedN = parseFloat(N);
+    const parsedK = parseFloat(K);
+
+    const missing = [];
+    if (jenis_tanaman == null || jenis_tanaman === "") missing.push("jenis_tanaman");
+    if (target_padi == null || target_padi === "") missing.push("target_padi");
+    if (isNaN(parsedP)) missing.push("P");
+    if (isNaN(parsedN)) missing.push("N");
+    if (isNaN(parsedK)) missing.push("K");
+
+    if (missing.length > 0) {
+      console.warn("Validation failed - missing/invalid fields:", missing);
+      return res.status(422).json({
+        success: false,
+        message: "Validation error - missing or invalid fields",
+        invalidFields: missing,
+      });
     }
-    
-    res.json(mlResponse.data);
+
+    // Siapkan payload untuk ML Server
+    const payloadForML = {
+      P: parsedP,
+      N: parsedN,
+      K: parsedK,
+      jenis_tanaman,
+      target_padi,
+    };
+
+    console.log("📨 Forwarding to ML API payload:", payloadForML);
+
+    // Panggil ML API dan tangani error lebih rinci
+    let mlResponse;
+    try {
+      mlResponse = await axios.post(ML_REKOMENDASI_API_URL, payloadForML, {
+        timeout: 15000,
+      });
+    } catch (axiosErr) {
+      // Jika ML mengembalikan response (mis. 4xx/5xx), axiosErr.response ada
+      console.error("❌ Axios error calling ML API:", axiosErr.message);
+      if (axiosErr.response) {
+        console.error("ML API response status:", axiosErr.response.status);
+        console.error("ML API response data:", axiosErr.response.data);
+        return res.status(502).json({
+          success: false,
+          message: "ML API returned an error",
+          mlStatus: axiosErr.response.status,
+          mlData: axiosErr.response.data,
+        });
+      } else {
+        return res.status(502).json({
+          success: false,
+          message: "Failed to reach ML API",
+          error: axiosErr.message,
+        });
+      }
+    }
+
+    // Periksa struktur response ML
+    console.log("ML response data:", mlResponse.data);
+
+    if (!mlResponse.data || mlResponse.data.success !== true || !mlResponse.data.data) {
+      console.error("ML API response unexpected:", mlResponse.data);
+      return res.status(502).json({
+        success: false,
+        message: "ML API returned unexpected response",
+        mlResponse: mlResponse.data,
+      });
+    }
+
+    // Ambil hasil dari ML
+    const { recommendations, reasons, tips, conversion_results } = mlResponse.data.data;
+
+    // Simpan history rekomendasi ke DB
+    const convertedTargetPadi = convertTargetPadi(target_padi);
+    const recommendationData = new Recommendation({
+      input: {
+        P: parsedP,
+        N: parsedN,
+        K: parsedK,
+        jenis_tanaman,
+        target_padi: convertedTargetPadi,
+      },
+      recommendation: recommendations,
+      reasons,
+      tips,
+      conversion_results,
+    });
+
+    await recommendationData.save();
+
+    res.json({
+      success: true,
+      message: "Recommendation generated and saved",
+      data: {
+        recommendation: recommendations,
+        timestamp: recommendationData.timestamp,
+        conversion_results: conversion_results,
+      },
+    });
   } catch (error) {
-    console.error("❌ Error in /recommendation/input:", error.message);
-    res.status(400).json({ 
-      success: false, 
-      message: "Error calling ML recommendation engine", 
-      error: error.message 
+    console.error("❌ Error generating recommendation (catch-all):", error);
+    res.status(500).json({
+      success: false,
+      message: "Error generating recommendation",
+      error: error.message,
     });
   }
 });
+
 
 // POST: Rekomendasi Tab "Data" / Dashboard (ML + Simpan ke DB)
 app.post("/api/recommendation", async (req, res) => {
