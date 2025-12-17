@@ -614,6 +614,24 @@ app.get("/api/latest/calibrated", async (req, res) => {
   }
 });
 
+app.get("/api/data/calibrated/all", async (req, res) => {
+  try {
+    // Ambil semua data, urutkan dari terbaru
+    // Kita gunakan .select() untuk hanya mengambil field yang penting agar performa tetap cepat
+    const calibratedData = await CalibratedData.find()
+      .sort({ timestamp: -1 })
+      .select("timestamp variables _id"); // Hanya ambil ID, Waktu, dan Variabel (Opsional, hapus .select jika butuh semua)
+
+    res.json({ success: true, data: calibratedData });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: "Error fetching all calibrated data", 
+      error: error.message 
+    });
+  }
+});
+
 // GET: Health Check
 app.get("/api/health", (req, res) => {
   res.json({ 
