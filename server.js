@@ -32,10 +32,15 @@ app.use(express.json());
 // ==========================================
 mongoose
   .connect(
-    "mongodb+srv://bimapopo81:Bima1234@sinau.q23pt.mongodb.net/pupuk-sdlp"
+    "mongodb+srv://bimapopo81:Bima1234@sinau.q23pt.mongodb.net/pupuk-sdlp?retryWrites=true&w=majority", 
+    {
+      // Opsi Tambahan Biar Vercel Gak Rewel:
+      serverSelectionTimeoutMS: 5000, // Kalo 5 detik gak konek, langsung error (biar gak loading lama)
+      family: 4, // <--- INI KUNCINYA (Paksa pake IPv4)
+    }
   )
   .then(() => {
-    console.log("✅ MongoDB connected to pupuk-sdlp database");
+    console.log("✅ MongoDB connected (IPv4 Forced)");
   })
   .catch((err) => console.log("❌ MongoDB connection error:", err));
 
