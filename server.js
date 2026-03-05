@@ -32,15 +32,10 @@ app.use(express.json());
 // ==========================================
 mongoose
   .connect(
-    "mongodb+srv://bimapopo81:Bima1234@sinau.q23pt.mongodb.net/pupuk-sdlp?retryWrites=true&w=majority", 
-    {
-      // Opsi Tambahan Biar Vercel Gak Rewel:
-      serverSelectionTimeoutMS: 5000, // Kalo 5 detik gak konek, langsung error (biar gak loading lama)
-      family: 4, // <--- INI KUNCINYA (Paksa pake IPv4)
-    }
+    "mongodb+srv://bimapopo81:Bima1234@sinau.q23pt.mongodb.net/pupuk-sdlp"
   )
   .then(() => {
-    console.log("✅ MongoDB connected (IPv4 Forced)");
+    console.log("✅ MongoDB connected to pupuk-sdlp database");
   })
   .catch((err) => console.log("❌ MongoDB connection error:", err));
 
@@ -304,6 +299,51 @@ app.delete("/api/data/raw/:id", async (req, res) => {
     res.json({ success: true, message: "Raw data deleted successfully" });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error deleting raw data", error: error.message });
+  }
+});
+
+// DELETE: Hapus Data Mentah berdasarkan Rentang Waktu (Tanggal & Jam)
+app.delete("/api/data/raw/range", async (req, res) => {
+  try {
+    const { startDate, endDate, startTime, endTime } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Parameter startDate dan endDate wajib diisi." 
+      });
+    }
+
+    // Menggabungkan tanggal dan jam menjadi format ISO
+    // Misal: "2024-03-20" + "T" + "00:00" + ":00.000Z"
+    const start = new Date(`${startDate}T${startTime || "00:00"}:00.000Z`);
+    const end = new Date(`${endDate}T${endTime || "23:59"}:59.999Z`);
+
+    // Validasi apakah format tanggal valid
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ success: false, message: "Format tanggal atau waktu tidak valid." });
+    }
+
+    // Eksekusi penghapusan di MongoDB
+    const result = await RawData.deleteMany({
+      timestamp: {
+        $gte: start,
+        $lte: end
+      }
+    });
+
+    res.json({ 
+      success: true, 
+      message: `${result.deletedCount} data mentah berhasil dihapus dari rentang waktu tersebut.`,
+      deletedCount: result.deletedCount 
+    });
+  } catch (error) {
+    console.error("Error deleting raw data range:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Gagal menghapus data berdasarkan rentang waktu", 
+      error: error.message 
+    });
   }
 });
 
