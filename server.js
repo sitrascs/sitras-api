@@ -443,17 +443,6 @@ app.get("/api/data/calibrated/history", async (req, res) => {
   }
 });
 
-// DELETE: Hapus 1 Data Kalibrasi by ID
-app.delete("/api/data/calibrated/:id", async (req, res) => {
-  try {
-    const calibratedData = await CalibratedData.findByIdAndDelete(req.params.id);
-    if (!calibratedData) return res.status(404).json({ success: false, message: "Data not found" });
-    res.json({ success: true, message: "Deleted successfully" });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Error deleting data", error: error.message });
-  }
-});
-
 // DELETE: Hapus Data Kalibrasi berdasarkan Rentang Waktu (ISO)
 app.delete("/api/data/calibrated/range", async (req, res) => {
   try {
@@ -472,6 +461,17 @@ app.delete("/api/data/calibrated/range", async (req, res) => {
     res.json({ success: true, message: `${result.deletedCount} data berhasil dihapus.`, deletedCount: result.deletedCount });
   } catch (error) {
     res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+  }
+});
+
+// DELETE: Hapus 1 Data Kalibrasi by ID
+app.delete("/api/data/calibrated/:id", async (req, res) => {
+  try {
+    const calibratedData = await CalibratedData.findByIdAndDelete(req.params.id);
+    if (!calibratedData) return res.status(404).json({ success: false, message: "Data not found" });
+    res.json({ success: true, message: "Deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error deleting data", error: error.message });
   }
 });
 
