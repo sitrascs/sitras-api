@@ -272,23 +272,50 @@ app.post("/api/data/raw", async (req, res) => {
 // POST: Bulk Insert Data Mentah (Array)
 app.post("/api/data/raw/bulk", async (req, res) => {
   try {
-    const dataArray = req.body; // harus array
+    const dataArray = req.body;
     if (!Array.isArray(dataArray) || dataArray.length === 0) {
       return res.status(400).json({ success: false, message: "Body harus berupa array data yang tidak kosong." });
     }
-
-    // Validasi sederhana tiap item
+    // Validasi sederhana
     for (let i = 0; i < dataArray.length; i++) {
-      const item = dataArray[i];
-      if (!item.variables || typeof item.variables !== "object") {
-        return res.status(400).json({ success: false, message: `Item ke-${i+1} harus memiliki properti 'variables'` });
+      if (!dataArray[i].variables || typeof dataArray[i].variables !== "object") {
+        return res.status(400).json({ success: false, message: `Item ke-${i+1} tidak valid.` });
       }
     }
+    const savedDocs = await RawData.insertMany(dataArray);
+    
+    // Jalankan kalibrasi async untuk setiap item (tidak blocking)
+    (async () => {
+      for (const doc of savedDocs) {
+        try {
+          const rawVars = doc.variables;
+          const mlResponse = await axios.post(ML_KALIBRASI_API_URL, {
+            pH: rawVars.pH,
+            N: rawVars.N,
+            P: rawVars.P,
+            K: rawVars.K,
+          }, { timeout: 10000 });
+          const cal = mlResponse.data;
+          await CalibratedData.create({
+            timestamp: doc.timestamp,
+            variables: {
+              pH: cal.pH_calibrated,
+              N: cal.N_calibrated,
+              P: cal.P_calibrated,
+              K: cal.K_calibrated,
+              suhu: rawVars.suhu,
+              kelembaban: rawVars.kelembaban,
+              EC: rawVars.EC,
+            },
+          });
+        } catch (err) {
+          console.error(`Gagal kalibrasi item ${doc._id}:`, err.message);
+        }
+      }
+    })();
 
-    const saved = await RawData.insertMany(dataArray);
-    res.status(201).json({ success: true, message: `${saved.length} data mentah berhasil disimpan.`, data: saved });
+    res.status(201).json({ success: true, message: `${savedDocs.length} data mentah berhasil disimpan.`, data: savedDocs });
   } catch (error) {
-    console.error("Bulk insert error:", error);
     res.status(500).json({ success: false, message: "Gagal menyimpan bulk data", error: error.message });
   }
 });
@@ -424,6 +451,27 @@ app.delete("/api/data/calibrated/:id", async (req, res) => {
     res.json({ success: true, message: "Deleted successfully" });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error deleting data", error: error.message });
+  }
+});
+
+// DELETE: Hapus Data Kalibrasi berdasarkan Rentang Waktu (ISO)
+app.delete("/api/data/calibrated/range", async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!start || !end) {
+      return res.status(400).json({ success: false, message: "Parameter start dan end (ISO) harus diisi." });
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return res.status(400).json({ success: false, message: "Format tanggal tidak valid." });
+    }
+    const result = await CalibratedData.deleteMany({
+      timestamp: { $gte: startDate, $lte: endDate }
+    });
+    res.json({ success: true, message: `${result.deletedCount} data berhasil dihapus.`, deletedCount: result.deletedCount });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
   }
 });
 
