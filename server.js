@@ -291,34 +291,29 @@ app.get("/api/data/raw/history", async (req, res) => {
   }
 });
 
-// --- TAMBAHKAN INI ---
-// DELETE: Hapus Data Mentah berdasarkan Rentang Waktu
+// ✅ DELETE: Hapus Data Mentah berdasarkan Rentang Waktu (ISO) - VERSI BARU
 app.delete("/api/data/raw/range", async (req, res) => {
   try {
-    const { startDate, endDate, startTime, endTime } = req.query;
+    const { start, end } = req.query;
 
-    if (!startDate || !endDate) {
+    if (!start || !end) {
       return res.status(400).json({ 
         success: false, 
-        message: "Tanggal mulai dan selesai harus diisi." 
+        message: "Parameter start dan end (ISO) harus diisi." 
       });
     }
 
-    // Gabungkan Tanggal dan Jam (Format ISO)
-    // Pastikan menggunakan format YYYY-MM-DDTHH:mm:ss
-    const start = new Date(`${startDate}T${startTime || "00:00"}:00.000Z`);
-    const end = new Date(`${endDate}T${endTime || "23:59"}:59.999Z`);
+    const startDate = new Date(start);
+    const endDate = new Date(end);
 
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
       return res.status(400).json({ success: false, message: "Format tanggal tidak valid." });
     }
 
-    // Eksekusi penghapusan
-    // Gunakan RawData (sesuai import di server.js Anda)
     const result = await RawData.deleteMany({
       timestamp: {
-        $gte: start,
-        $lte: end
+        $gte: startDate,
+        $lte: endDate
       }
     });
 
