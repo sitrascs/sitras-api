@@ -269,6 +269,30 @@ app.post("/api/data/raw", async (req, res) => {
   }
 });
 
+// POST: Bulk Insert Data Mentah (Array)
+app.post("/api/data/raw/bulk", async (req, res) => {
+  try {
+    const dataArray = req.body; // harus array
+    if (!Array.isArray(dataArray) || dataArray.length === 0) {
+      return res.status(400).json({ success: false, message: "Body harus berupa array data yang tidak kosong." });
+    }
+
+    // Validasi sederhana tiap item
+    for (let i = 0; i < dataArray.length; i++) {
+      const item = dataArray[i];
+      if (!item.variables || typeof item.variables !== "object") {
+        return res.status(400).json({ success: false, message: `Item ke-${i+1} harus memiliki properti 'variables'` });
+      }
+    }
+
+    const saved = await RawData.insertMany(dataArray);
+    res.status(201).json({ success: true, message: `${saved.length} data mentah berhasil disimpan.`, data: saved });
+  } catch (error) {
+    console.error("Bulk insert error:", error);
+    res.status(500).json({ success: false, message: "Gagal menyimpan bulk data", error: error.message });
+  }
+});
+
 // GET: Ambil 1 Data Mentah Terbaru
 app.get("/api/data/raw", async (req, res) => {
   try {
