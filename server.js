@@ -2,7 +2,6 @@ const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const axios = require("axios");
-// Pastikan file model ini sudah diperbarui dengan Schema baru di folder models/
 const {
   RawData,
   CalibratedData,
@@ -68,10 +67,9 @@ const createDefaultAdmin = async () => {
   try {
     const admin = await User.findOne({ role: "admin" });
     if (!admin) {
-      // ✅ Tidak perlu hash manual disini, karena User.create memicu pre('save') hook
       await User.create({
         username: "admin",
-        password: "admin123", // Password ini akan otomatis di-hash oleh model
+        password: "admin123",
         role: "admin"
       });
       console.log("✅ Admin Default dibuat: admin / admin123");
@@ -86,15 +84,12 @@ createDefaultAdmin();
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
   try {
-    // 1. Cari user berdasarkan username
     const user = await User.findOne({ username });
     
-    // 2. Cek apakah user ada
     if (!user) {
       return res.status(401).json({ success: false, message: "Username atau Password salah" });
     }
 
-    // 3. ✅ Cek password menggunakan method comparePassword dari model
     const isMatch = await user.comparePassword(password);
     
     if (!isMatch) {
@@ -118,7 +113,7 @@ app.post("/api/login", async (req, res) => {
 // 2. GET ALL USERS (Khusus Admin)
 app.get("/api/users", async (req, res) => {
   try {
-    const users = await User.find({}, "-password"); // Jangan kirim password ke frontend
+    const users = await User.find({}, "-password");
     res.json(users);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -130,13 +125,11 @@ app.post("/api/users", async (req, res) => {
   try {
     const { username, password, role } = req.body;
     
-    // Cek duplikasi
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ message: "Username sudah digunakan!" });
     }
 
-    // ✅ Cukup buat instance baru dan save. Hash otomatis jalan.
     const newUser = new User({ username, password, role });
     await newUser.save(); 
     
@@ -149,15 +142,12 @@ app.post("/api/users", async (req, res) => {
 // 4. DELETE USER
 app.delete("/api/users/:id", async (req, res) => {
   try {
-    // 1. Cari user dulu untuk cek username-nya
     const targetUser = await User.findById(req.params.id);
 
     if (!targetUser) {
       return res.status(404).json({ success: false, message: "User tidak ditemukan" });
     }
 
-    // 2. === PROTEKSI SUPERADMIN ===
-    // Jika username adalah 'admin', tolak penghapusan
     if (targetUser.username === "admin") {
       return res.status(403).json({ 
         success: false, 
@@ -165,7 +155,6 @@ app.delete("/api/users/:id", async (req, res) => {
       });
     }
 
-    // 3. Jika bukan admin, lanjutkan penghapusan
     await User.findByIdAndDelete(req.params.id);
     
     res.json({ success: true, message: "User berhasil dihapus" });
@@ -179,23 +168,18 @@ app.put("/api/users/change-password", async (req, res) => {
   try {
     const { username, newPassword } = req.body;
 
-    // Validasi sederhana
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ success: false, message: "Password minimal 6 karakter" });
     }
 
-    // ✅ PERBAIKAN PENTING:
-    // Jangan pakai findOneAndUpdate karena itu MEM-BYPASS middleware pre('save') (hashing tidak jalan).
-    // Gunakan findOne -> ubah property -> save()
-    
     const user = await User.findOne({ username: username });
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User tidak ditemukan" });
     }
 
-    user.password = newPassword; // Set password baru (masih plain text)
-    await user.save(); // Mongoose akan otomatis hash password ini sebelum simpan ke DB
+    user.password = newPassword;
+    await user.save();
 
     res.json({ success: true, message: "Password berhasil diubah" });
   } catch (error) {
@@ -213,31 +197,30 @@ app.put("/api/users/change-password", async (req, res) => {
 app.post("/api/data/raw", async (req, res) => {
   try {
     const rawData = new RawData(req.body);
-    // Timestamp otomatis diisi oleh Mongoose (UTC)
     await rawData.save();
 
     // --- INTEGRASI ML (MODEL 1: KALIBRASI) ---
-    // Proses ini berjalan asynchronous agar tidak memblokir respon ke alat
     (async () => {
       try {
         console.log("📡 Data mentah disimpan. Memulai proses kalibrasi ML...");
         const rawVars = rawData.variables;
+        
+        // ⚠️ PERUBAHAN: Kirim 6 fitur sesuai model baru (Ridge Poly3)
         const dataForML = {
-          pH: rawVars.pH,
-          N: rawVars.N,
-          P: rawVars.P,
-          K: rawVars.K,
+          pH: rawVars.pH ?? 0,
+          N: rawVars.N ?? 0,
+          P: rawVars.P ?? 0,
+          K: rawVars.K ?? 0,
+          EC: rawVars.EC ?? 0,
+          Kelembaban: rawVars.kelembaban ?? 0   // pastikan nama key sesuai ml_api
         };
         
-        // Kirim ke ML Server
         const mlResponse = await axios.post(ML_KALIBRASI_API_URL, dataForML, {
-          timeout: 10000, // Timeout diperpanjang sedikit untuk keamanan
+          timeout: 10000,
         });
 
         const calibratedValues = mlResponse.data;
         
-        // Simpan hasil kalibrasi ke tabel CalibratedData
-        // PENTING: Timestamp disamakan dengan rawData agar sinkron
         const calibratedData = new CalibratedData({
           timestamp: rawData.timestamp, 
           variables: {
@@ -276,7 +259,6 @@ app.post("/api/data/raw/bulk", async (req, res) => {
     if (!Array.isArray(dataArray) || dataArray.length === 0) {
       return res.status(400).json({ success: false, message: "Body harus berupa array data yang tidak kosong." });
     }
-    // Validasi sederhana
     for (let i = 0; i < dataArray.length; i++) {
       if (!dataArray[i].variables || typeof dataArray[i].variables !== "object") {
         return res.status(400).json({ success: false, message: `Item ke-${i+1} tidak valid.` });
@@ -284,17 +266,19 @@ app.post("/api/data/raw/bulk", async (req, res) => {
     }
     const savedDocs = await RawData.insertMany(dataArray);
     
-    // Jalankan kalibrasi async untuk setiap item (tidak blocking)
     (async () => {
       for (const doc of savedDocs) {
         try {
           const rawVars = doc.variables;
-          const mlResponse = await axios.post(ML_KALIBRASI_API_URL, {
-            pH: rawVars.pH,
-            N: rawVars.N,
-            P: rawVars.P,
-            K: rawVars.K,
-          }, { timeout: 10000 });
+          const dataForML = {
+            pH: rawVars.pH ?? 0,
+            N: rawVars.N ?? 0,
+            P: rawVars.P ?? 0,
+            K: rawVars.K ?? 0,
+            EC: rawVars.EC ?? 0,
+            Kelembaban: rawVars.kelembaban ?? 0
+          };
+          const mlResponse = await axios.post(ML_KALIBRASI_API_URL, dataForML, { timeout: 10000 });
           const cal = mlResponse.data;
           await CalibratedData.create({
             timestamp: doc.timestamp,
@@ -342,7 +326,7 @@ app.get("/api/data/raw/history", async (req, res) => {
   }
 });
 
-// ✅ DELETE: Hapus Data Mentah berdasarkan Rentang Waktu (ISO) - VERSI BARU
+// DELETE: Hapus Data Mentah berdasarkan Rentang Waktu (ISO)
 app.delete("/api/data/raw/range", async (req, res) => {
   try {
     const { start, end } = req.query;
@@ -410,7 +394,7 @@ app.delete("/api/data/raw", async (req, res) => {
 // 2. CALIBRATED DATA ENDPOINTS (Hasil Kalibrasi)
 // ------------------------------------------
 
-// POST: Simpan Manual Data Kalibrasi (Jarang dipakai jika otomatis, tapi disediakan)
+// POST: Simpan Manual Data Kalibrasi
 app.post("/api/data/calibrated", async (req, res) => {
   try {
     const calibratedData = new CalibratedData(req.body);
@@ -492,7 +476,6 @@ app.delete("/api/data/calibrated", async (req, res) => {
 // POST: Simpan Manual Data
 app.post("/api/data/manual", async (req, res) => {
   try {
-    // Schema manualData mengharapkan: label, coordinates, variables, sourceCalibratedId
     const manualData = new ManualData(req.body);
     await manualData.save();
     
@@ -513,12 +496,11 @@ app.post("/api/data/manual", async (req, res) => {
 // GET: Ambil History Manual Data (List untuk Sidebar)
 app.get("/api/data/manual", async (req, res) => {
   try {
-    // Ambil semua data manual, urutkan dari yang terbaru
     const manualDataList = await ManualData.find().sort({ timestamp: -1 });
 
     res.json({
       success: true,
-      data: manualDataList, // Mengembalikan ARRAY
+      data: manualDataList,
     });
   } catch (error) {
     res.status(500).json({
@@ -559,7 +541,7 @@ app.delete("/api/data/manual/:id", async (req, res) => {
   }
 });
 
-// DELETE: Hapus SEMUA Manual Data (Fitur tambahan untuk kelengkapan)
+// DELETE: Hapus SEMUA Manual Data
 app.delete("/api/data/manual", async (req, res) => {
   try {
     await ManualData.deleteMany({});
@@ -576,15 +558,21 @@ app.delete("/api/data/manual", async (req, res) => {
 // POST: Rekomendasi Tab "Input" (Langsung ke ML, TANPA simpan ke DB)
 app.post("/api/recommendation/input", async (req, res) => {
   try {
-    const payloadForML = req.body;
-    console.log("📨 Request /input diterima, meneruskan ke ML API...");
+    // ⚠️ PERUBAHAN: Payload tidak lagi mengandung N, hanya P, K, jenis_tanaman, target_padi
+    const payloadForML = {
+      P: req.body.P,
+      K: req.body.K,
+      jenis_tanaman: req.body.jenis_tanaman,
+      target_padi: req.body.target_padi,
+    };
+    console.log("📨 Request /input diteruskan ke ML API:", payloadForML);
     
     const mlResponse = await axios.post(ML_REKOMENDASI_API_URL, payloadForML, { 
       timeout: 10000 
     });
     
     if (!mlResponse.data || !mlResponse.data.success) {
-      throw new Error("ML API call was not successful or returned no data");
+      throw new Error("ML API call was not successful");
     }
     
     res.json(mlResponse.data);
@@ -601,18 +589,17 @@ app.post("/api/recommendation/input", async (req, res) => {
 // POST: Rekomendasi Tab "Data" / Dashboard (ML + Simpan ke DB)
 app.post("/api/recommendation", async (req, res) => {
   try {
-    const { P, N, K, jenis_tanaman, target_padi } = req.body;
+    const { P, K, jenis_tanaman, target_padi } = req.body;
+    // ⚠️ Tidak ada N lagi
 
-    // Siapkan payload untuk ML Server
     const payloadForML = {
       P: parseFloat(P),
-      N: parseFloat(N),
       K: parseFloat(K),
       jenis_tanaman,
       target_padi,
     };
 
-    console.log("📨 Request /recommendation diterima, meneruskan ke ML API...");
+    console.log("📨 Request /recommendation diteruskan ke ML API:", payloadForML);
     const mlResponse = await axios.post(ML_REKOMENDASI_API_URL, payloadForML, { 
       timeout: 10000 
     });
@@ -621,23 +608,24 @@ app.post("/api/recommendation", async (req, res) => {
       throw new Error("ML API Error: Response not success");
     }
     
-    // Ambil hasil dari ML
-    const { recommendations, reasons, tips, conversion_results } = mlResponse.data.data;
+    const { recommendations, status_hara } = mlResponse.data.data;
+
+    // Konversi target_padi untuk penyimpanan (jika diperlukan)
     const convertedTargetPadi = convertTargetPadi(target_padi);
 
-    // Simpan history rekomendasi ke DB
     const recommendationData = new Recommendation({
       input: {
         P: parseFloat(P),
-        N: parseFloat(N),
         K: parseFloat(K),
         jenis_tanaman,
         target_padi: convertedTargetPadi,
+        // N tidak disimpan karena tidak dipakai
       },
       recommendation: recommendations,
-      reasons,
-      tips,
-      conversion_results,
+      // reasons, tips tidak ada lagi di response baru, kita set default
+      reasons: { info: "Rekomendasi berdasarkan status hara" },
+      tips: "Dosis sesuai aturan pemupukan",
+      conversion_results: status_hara, // gunakan status_hara sebagai conversion_results
     });
 
     await recommendationData.save();
@@ -648,7 +636,7 @@ app.post("/api/recommendation", async (req, res) => {
       data: {
         recommendation: recommendations,
         timestamp: recommendationData.timestamp,
-        conversion_results: conversion_results
+        conversion_results: status_hara
       },
     });
   } catch (error) {
@@ -731,11 +719,9 @@ app.get("/api/latest/calibrated", async (req, res) => {
 
 app.get("/api/data/calibrated/all", async (req, res) => {
   try {
-    // Ambil semua data, urutkan dari terbaru
-    // Kita gunakan .select() untuk hanya mengambil field yang penting agar performa tetap cepat
     const calibratedData = await CalibratedData.find()
       .sort({ timestamp: -1 })
-      .select("timestamp variables _id"); // Hanya ambil ID, Waktu, dan Variabel (Opsional, hapus .select jika butuh semua)
+      .select("timestamp variables _id");
 
     res.json({ success: true, data: calibratedData });
   } catch (error) {
