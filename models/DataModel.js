@@ -116,7 +116,7 @@ const RecommendationSchema = new mongoose.Schema(
     // Field 'timestamp' manual DIHAPUS dari sini
     input: {
       P: { type: Number, required: true },
-      N: { type: Number, required: true },
+      // N: { type: Number, required: true },
       K: { type: Number, required: true },
       jenis_tanaman: { type: String, required: true, default: "Padi" },
       target_padi: { type: Number, required: true, enum: [1, 2, 3, 4], default: 4 },
